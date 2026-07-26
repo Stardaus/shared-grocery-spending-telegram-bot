@@ -70,8 +70,15 @@ export function createBot(env: Env): Bot {
 
   // Global Error Handler
   bot.catch((err: BotError) => {
+    const errObj = err.error as any;
     logger.error(
-      { error: err.error, ctx: err.ctx.update },
+      {
+        message: errObj?.message || String(err.error),
+        status: errObj?.status || errObj?.code,
+        responseData: errObj?.response?.data,
+        configUrl: errObj?.config?.url,
+        ctx: err.ctx.update,
+      },
       "Unhandled error in bot handler"
     );
     err.ctx.reply("⚠️ An unexpected error occurred. Please try again later.").catch(() => {});

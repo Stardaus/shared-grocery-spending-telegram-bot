@@ -12,9 +12,10 @@ export class GeminiAIService implements IAIService {
   private readonly genAI: GoogleGenerativeAI;
   private readonly apiKey: string;
   private readonly candidateModels = [
-    "gemini-1.5-flash",
-    "gemini-1.5-flash-8b",
+    "gemini-2.5-flash",
     "gemini-2.0-flash",
+    "gemini-1.5-flash",
+    "gemini-2.0-flash-lite",
     "gemini-1.5-pro",
   ];
 

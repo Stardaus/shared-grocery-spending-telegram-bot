@@ -30,42 +30,50 @@ export class GeminiAIService implements IAIService {
     let lastError: any = null;
 
     for (const modelName of this.candidateModels) {
-      try {
-        const model = this.genAI.getGenerativeModel({
-          model: modelName,
-          generationConfig,
-        });
-        const result = await model.generateContent(promptOrParts);
-        return result.response.text();
-      } catch (err: any) {
-        lastError = err;
-        const is404Or429 =
-          err?.status === 404 ||
-          err?.status === 429 ||
-          err?.message?.includes("404") ||
-          err?.message?.includes("429");
+      // Try each model up to 2 attempts with a 1.5s backoff delay on 429 rate limits
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const model = this.genAI.getGenerativeModel({
+            model: modelName,
+            generationConfig,
+          });
+          const result = await model.generateContent(promptOrParts);
+          return result.response.text();
+        } catch (err: any) {
+          lastError = err;
+          const status = err?.status;
+          const msg = String(err?.message || err);
 
-        if (is404Or429) {
-          logger.warn(
-            `Gemini model ${modelName} returned status ${err?.status || "error"}, trying fallback model...`
-          );
-          continue;
+          const is404 = status === 404 || msg.includes("404");
+          const is429 = status === 429 || msg.includes("429") || msg.includes("Quota exceeded");
+
+          if (is404) {
+            logger.warn(`Gemini model ${modelName} returned 404, trying fallback model...`);
+            break; // Skip to next candidate model
+          }
+
+          if (is429) {
+            logger.warn(
+              `Gemini model ${modelName} hit rate limit (429) on attempt ${attempt}/2, backing off 1.5s...`
+            );
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+            continue; // Retry same model or move to next
+          }
+
+          throw err;
         }
-        throw err;
       }
     }
 
     logger.error(
       {
-        lastError,
-        hint: "All Gemini model endpoints returned 404. Please verify GEMINI_API_KEY at https://aistudio.google.com and ensure Generative Language API is enabled.",
+        lastErrorMsg: String(lastError?.message || lastError),
+        lastErrorStatus: lastError?.status,
       },
-      "Gemini API key or model access failure"
+      "All Gemini candidate models failed"
     );
 
-    throw new Error(
-      "Gemini API model access failed (404). Please verify your GEMINI_API_KEY at https://aistudio.google.com"
-    );
+    throw lastError;
   }
 
   /**

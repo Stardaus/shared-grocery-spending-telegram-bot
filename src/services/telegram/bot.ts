@@ -1,6 +1,6 @@
 import { Bot, BotError } from "grammy";
 import { Env } from "../../config/env.js";
-import { getSheetsClient } from "../sheets/client.js";
+import { getSheetsClient, ensureSheetTabsExist } from "../sheets/client.js";
 import { CategoryRepository } from "../sheets/categoryRepository.js";
 import { BudgetRepository } from "../sheets/budgetRepository.js";
 import { TransactionRepository } from "../sheets/transactionRepository.js";
@@ -29,6 +29,11 @@ export function createBot(env: Env): Bot {
   const categoryRepo = new CategoryRepository(sheetsClient, env.GOOGLE_SPREADSHEET_ID);
   const budgetRepo = new BudgetRepository(sheetsClient, env.GOOGLE_SPREADSHEET_ID);
   const transactionRepo = new TransactionRepository(sheetsClient, env.GOOGLE_SPREADSHEET_ID);
+
+  // Auto-initialize missing Google Sheet tabs asynchronously on startup
+  ensureSheetTabsExist(sheetsClient, env.GOOGLE_SPREADSHEET_ID).catch((err) => {
+    logger.warn({ error: err }, "Failed to auto-initialize Google Sheet tabs");
+  });
 
   const aiService = new GeminiAIService(env.GEMINI_API_KEY);
   const receiptSessions: ReceiptSessionMap = new Map();

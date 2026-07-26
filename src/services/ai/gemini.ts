@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { LineItem, LineItemSchema, GeminiParsedReceipt, GeminiParsedReceiptSchema } from "../../domain/transaction.js";
 import { buildTextExpensePrompt, buildReceiptVisionPrompt } from "./prompts.js";
+import { logger } from "../../utils/logger.js";
 
 export interface IAIService {
   parseTextExpense(text: string, allowedCategories: string[]): Promise<LineItem>;
@@ -9,26 +10,52 @@ export interface IAIService {
 
 export class GeminiAIService implements IAIService {
   private readonly genAI: GoogleGenerativeAI;
-  private readonly modelName = "gemini-1.5-flash";
+  private readonly candidateModels = [
+    "gemini-1.5-flash-latest",
+    "gemini-1.5-flash",
+    "gemini-2.0-flash-exp",
+    "gemini-1.5-pro-latest",
+  ];
 
   constructor(apiKey: string) {
     this.genAI = new GoogleGenerativeAI(apiKey);
+  }
+
+  private async generateContentWithFallback(
+    promptOrParts: any,
+    generationConfig?: any
+  ): Promise<string> {
+    let lastError: any = null;
+
+    for (const modelName of this.candidateModels) {
+      try {
+        const model = this.genAI.getGenerativeModel({
+          model: modelName,
+          generationConfig,
+        });
+        const result = await model.generateContent(promptOrParts);
+        return result.response.text();
+      } catch (err: any) {
+        lastError = err;
+        if (err?.status === 404 || err?.message?.includes("404")) {
+          logger.warn(`Gemini model ${modelName} returned 404, trying fallback model...`);
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    throw lastError;
   }
 
   /**
    * Parses free-form text input (e.g., "100 ringgit - ayam") into a structured LineItem.
    */
   async parseTextExpense(text: string, allowedCategories: string[]): Promise<LineItem> {
-    const model = this.genAI.getGenerativeModel({
-      model: this.modelName,
-      generationConfig: {
-        responseMimeType: "application/json",
-      },
-    });
-
     const prompt = buildTextExpensePrompt(text, allowedCategories);
-    const result = await model.generateContent(prompt);
-    const rawJson = result.response.text();
+    const rawJson = await this.generateContentWithFallback(prompt, {
+      responseMimeType: "application/json",
+    });
 
     const parsed = JSON.parse(rawJson);
 
@@ -48,13 +75,6 @@ export class GeminiAIService implements IAIService {
     mimeType: string,
     allowedCategories: string[]
   ): Promise<GeminiParsedReceipt> {
-    const model = this.genAI.getGenerativeModel({
-      model: this.modelName,
-      generationConfig: {
-        responseMimeType: "application/json",
-      },
-    });
-
     const prompt = buildReceiptVisionPrompt(allowedCategories);
     const imagePart = {
       inlineData: {
@@ -63,8 +83,9 @@ export class GeminiAIService implements IAIService {
       },
     };
 
-    const result = await model.generateContent([prompt, imagePart]);
-    const rawJson = result.response.text();
+    const rawJson = await this.generateContentWithFallback([prompt, imagePart], {
+      responseMimeType: "application/json",
+    });
 
     const parsed = JSON.parse(rawJson);
 

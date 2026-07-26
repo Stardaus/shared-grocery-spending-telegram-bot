@@ -12,10 +12,10 @@ export class GeminiAIService implements IAIService {
   private readonly genAI: GoogleGenerativeAI;
   private readonly apiKey: string;
   private readonly candidateModels = [
-    "gemini-2.0-flash",
     "gemini-1.5-flash",
-    "gemini-1.5-pro",
     "gemini-1.5-flash-8b",
+    "gemini-2.0-flash",
+    "gemini-1.5-pro",
   ];
 
   constructor(apiKey: string) {
@@ -39,8 +39,16 @@ export class GeminiAIService implements IAIService {
         return result.response.text();
       } catch (err: any) {
         lastError = err;
-        if (err?.status === 404 || err?.message?.includes("404")) {
-          logger.warn(`Gemini model ${modelName} returned 404, trying fallback model...`);
+        const is404Or429 =
+          err?.status === 404 ||
+          err?.status === 429 ||
+          err?.message?.includes("404") ||
+          err?.message?.includes("429");
+
+        if (is404Or429) {
+          logger.warn(
+            `Gemini model ${modelName} returned status ${err?.status || "error"}, trying fallback model...`
+          );
           continue;
         }
         throw err;

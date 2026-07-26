@@ -10,15 +10,17 @@ export interface IAIService {
 
 export class GeminiAIService implements IAIService {
   private readonly genAI: GoogleGenerativeAI;
+  private readonly apiKey: string;
   private readonly candidateModels = [
-    "gemini-1.5-flash-latest",
+    "gemini-2.0-flash",
     "gemini-1.5-flash",
-    "gemini-2.0-flash-exp",
-    "gemini-1.5-pro-latest",
+    "gemini-1.5-pro",
+    "gemini-1.5-flash-8b",
   ];
 
   constructor(apiKey: string) {
-    this.genAI = new GoogleGenerativeAI(apiKey);
+    this.apiKey = apiKey.trim().replace(/^["']|["']$/g, "");
+    this.genAI = new GoogleGenerativeAI(this.apiKey);
   }
 
   private async generateContentWithFallback(
@@ -45,7 +47,17 @@ export class GeminiAIService implements IAIService {
       }
     }
 
-    throw lastError;
+    logger.error(
+      {
+        lastError,
+        hint: "All Gemini model endpoints returned 404. Please verify GEMINI_API_KEY at https://aistudio.google.com and ensure Generative Language API is enabled.",
+      },
+      "Gemini API key or model access failure"
+    );
+
+    throw new Error(
+      "Gemini API model access failed (404). Please verify your GEMINI_API_KEY at https://aistudio.google.com"
+    );
   }
 
   /**

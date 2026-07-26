@@ -30,7 +30,10 @@ describe("Telegram Security Middleware (auth.ts)", () => {
 
     await middleware(mockCtx, nextFn);
     expect(nextFn).not.toHaveBeenCalled();
-    expect(mockCtx.reply).toHaveBeenCalledWith("Access restricted to authorized household members.");
+    expect(mockCtx.reply).toHaveBeenCalledWith(
+      expect.stringContaining("99999999"),
+      { parse_mode: "MarkdownV2" }
+    );
   });
 
   it("should block request if ctx.from is missing", async () => {
@@ -41,6 +44,9 @@ describe("Telegram Security Middleware (auth.ts)", () => {
 
     await middleware(mockCtx, nextFn);
     expect(nextFn).not.toHaveBeenCalled();
-    expect(mockCtx.reply).toHaveBeenCalledWith("Access restricted to authorized household members.");
+    expect(mockCtx.reply).toHaveBeenCalledWith(
+      expect.stringContaining("unknown"),
+      { parse_mode: "MarkdownV2" }
+    );
   });
 });

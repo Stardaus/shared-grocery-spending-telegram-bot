@@ -1,0 +1,46 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { authorizeUser } from "../../src/services/telegram/middleware/auth.js";
+
+describe("Telegram Security Middleware (auth.ts)", () => {
+  const allowedUserIds = ["12345678", "87654321"];
+  const middleware = authorizeUser(allowedUserIds);
+
+  let nextFn: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    nextFn = vi.fn().mockResolvedValue(undefined);
+  });
+
+  it("should allow request to proceed if user ID is in allowed list", async () => {
+    const mockCtx = {
+      from: { id: 12345678, first_name: "Husband" },
+      reply: vi.fn(),
+    } as any;
+
+    await middleware(mockCtx, nextFn);
+    expect(nextFn).toHaveBeenCalled();
+    expect(mockCtx.reply).not.toHaveBeenCalled();
+  });
+
+  it("should block request and reply with access restricted if user ID is unauthorized", async () => {
+    const mockCtx = {
+      from: { id: 99999999, first_name: "Stranger" },
+      reply: vi.fn(),
+    } as any;
+
+    await middleware(mockCtx, nextFn);
+    expect(nextFn).not.toHaveBeenCalled();
+    expect(mockCtx.reply).toHaveBeenCalledWith("Access restricted to authorized household members.");
+  });
+
+  it("should block request if ctx.from is missing", async () => {
+    const mockCtx = {
+      from: undefined,
+      reply: vi.fn(),
+    } as any;
+
+    await middleware(mockCtx, nextFn);
+    expect(nextFn).not.toHaveBeenCalled();
+    expect(mockCtx.reply).toHaveBeenCalledWith("Access restricted to authorized household members.");
+  });
+});

@@ -60,8 +60,19 @@ describe("Gemini Text Expense Parser (geminiText.test.ts)", () => {
       },
     });
 
-    const parsed = await aiService.parseTextExpense("fast food 15", allowedCategories);
+    const parsed = await aiService.parseTextExpense("Fast Food 15", allowedCategories);
     expect(parsed.category).toBe("Uncategorized");
+  });
+
+  it("should fallback to parseLocalTextExpense if Gemini API fails completely", async () => {
+    mockGenerateContent.mockRejectedValue(new Error("API Error 404/429"));
+
+    const parsed = await aiService.parseTextExpense("Carrot 10", allowedCategories);
+    expect(parsed).toEqual({
+      item: "Carrot",
+      amount: 10,
+      category: "Produce & Veggies",
+    });
   });
 
   it("should throw error if Gemini JSON output does not match LineItem structure", async () => {

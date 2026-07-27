@@ -30,6 +30,12 @@ export async function handleTextExpense(
     // Parse text input 100% locally using deterministic regex matching (Zero AI calls)
     parsedItem = parseLocalTextExpense(textInput, categoryNames);
   } catch (err) {
+    // In group chats, silently ignore non-expense text so casual chat is never interrupted!
+    const isPrivate = ctx.chat?.type === "private";
+    if (!isPrivate) {
+      return;
+    }
+
     const userName = escapeMarkdownV2(ctx.from?.first_name || "there");
     await ctx.reply(
       `👋 *Hello ${userName}\\! I am your Shared Grocery Spending Bot\\.*\n\n` +

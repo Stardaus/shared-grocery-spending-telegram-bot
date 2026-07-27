@@ -37,11 +37,12 @@ describe("Text Expense Ingestion Handler (expenseHandler.ts)", () => {
     expect(mockCtx.reply).not.toHaveBeenCalled();
   });
 
-  it("should reply with help guide if text cannot be parsed into an expense", async () => {
+  it("should reply with help guide in private chat if text cannot be parsed into an expense", async () => {
     mockCategoryRepository.getCategories.mockResolvedValueOnce([]);
     const mockCtx = {
       message: { text: "Hello there" },
       from: { first_name: "Firdaus" },
+      chat: { type: "private" },
       reply: vi.fn(),
     } as any;
 
@@ -50,6 +51,19 @@ describe("Text Expense Ingestion Handler (expenseHandler.ts)", () => {
       expect.stringContaining("Hello Firdaus"),
       { parse_mode: "MarkdownV2" }
     );
+  });
+
+  it("should ignore non-expense text silently in group chats", async () => {
+    mockCategoryRepository.getCategories.mockResolvedValueOnce([]);
+    const mockCtx = {
+      message: { text: "Hello everyone in group" },
+      from: { first_name: "Firdaus" },
+      chat: { type: "group" },
+      reply: vi.fn(),
+    } as any;
+
+    await handleTextExpense(mockCtx, mockCategoryRepository, textSessions);
+    expect(mockCtx.reply).not.toHaveBeenCalled();
   });
 
   it("should parse incoming text expense locally and send confirmation preview card with buttons", async () => {

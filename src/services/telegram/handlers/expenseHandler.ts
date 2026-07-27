@@ -115,6 +115,9 @@ export async function handleConfirmTextExpenseCallback(
   const activeBudget = await budgetRepository.getActiveBudget(todayIso);
   const budgetId = activeBudget ? activeBudget.id : "UNASSIGNED";
 
+  const purchaserId = ctx.from?.id?.toString() || session.userId;
+  const purchaserName = ctx.from?.first_name || ctx.from?.username || session.userName;
+
   // Write row to Google Sheets
   const [createdTransaction] = await transactionRepository.addTransactions([
     {
@@ -122,8 +125,8 @@ export async function handleConfirmTextExpenseCallback(
       item: session.item,
       category: session.category,
       amount: session.amount,
-      purchaserId: session.userId,
-      purchaserName: session.userName,
+      purchaserId,
+      purchaserName,
       rawInput: session.rawInput,
       budgetId,
     },

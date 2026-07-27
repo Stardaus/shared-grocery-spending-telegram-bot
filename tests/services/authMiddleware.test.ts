@@ -22,9 +22,10 @@ describe("Telegram Security Middleware (auth.ts)", () => {
     expect(mockCtx.reply).not.toHaveBeenCalled();
   });
 
-  it("should block request and reply with access restricted if user ID is unauthorized", async () => {
+  it("should block request and reply with access restricted if user ID is unauthorized in private chat", async () => {
     const mockCtx = {
       from: { id: 99999999, first_name: "Stranger" },
+      chat: { type: "private" },
       reply: vi.fn(),
     } as any;
 
@@ -36,9 +37,23 @@ describe("Telegram Security Middleware (auth.ts)", () => {
     );
   });
 
+  it("should block request silently in group chat for unauthorized user text", async () => {
+    const mockCtx = {
+      from: { id: 99999999, first_name: "Stranger" },
+      chat: { type: "group" },
+      message: { text: "hello everyone" },
+      reply: vi.fn(),
+    } as any;
+
+    await middleware(mockCtx, nextFn);
+    expect(nextFn).not.toHaveBeenCalled();
+    expect(mockCtx.reply).not.toHaveBeenCalled();
+  });
+
   it("should block request if ctx.from is missing", async () => {
     const mockCtx = {
       from: undefined,
+      chat: { type: "private" },
       reply: vi.fn(),
     } as any;
 

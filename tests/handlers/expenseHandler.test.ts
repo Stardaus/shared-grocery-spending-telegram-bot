@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { handleTextExpense } from "../../src/services/telegram/handlers/expenseHandler.js";
+import {
+  handleTextExpense,
+  handleConfirmTextExpenseCallback,
+  handleCancelTextExpenseCallback,
+  TextExpenseSessionMap,
+} from "../../src/services/telegram/handlers/expenseHandler.js";
 
 describe("Text Expense Ingestion Handler (expenseHandler.ts)", () => {
-  const mockAIService = {
-    parseTextExpense: vi.fn(),
-    parseReceiptImage: vi.fn(),
-  };
-
   const mockCategoryRepository = {
     getCategories: vi.fn(),
   } as any;
@@ -20,19 +20,79 @@ describe("Text Expense Ingestion Handler (expenseHandler.ts)", () => {
     addTransactions: vi.fn(),
   } as any;
 
+  let textSessions: TextExpenseSessionMap;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    textSessions = new Map();
   });
 
-  it("should parse incoming text expense, persist to Sheets, and send confirmation", async () => {
+  it("should return early if message text is empty", async () => {
+    const mockCtx = {
+      message: { text: "   " },
+      reply: vi.fn(),
+    } as any;
+
+    await handleTextExpense(mockCtx, mockCategoryRepository, textSessions);
+    expect(mockCtx.reply).not.toHaveBeenCalled();
+  });
+
+  it("should reply with help guide if text cannot be parsed into an expense", async () => {
+    mockCategoryRepository.getCategories.mockResolvedValueOnce([]);
+    const mockCtx = {
+      message: { text: "Hello there" },
+      from: { first_name: "Firdaus" },
+      reply: vi.fn(),
+    } as any;
+
+    await handleTextExpense(mockCtx, mockCategoryRepository, textSessions);
+    expect(mockCtx.reply).toHaveBeenCalledWith(
+      expect.stringContaining("Hello Firdaus"),
+      { parse_mode: "MarkdownV2" }
+    );
+  });
+
+  it("should parse incoming text expense locally and send confirmation preview card with buttons", async () => {
     mockCategoryRepository.getCategories.mockResolvedValueOnce([
       { id: "c1", name: "Meat & Seafood", createdAt: "2026-03-25T00:00:00Z" },
     ]);
 
-    mockAIService.parseTextExpense.mockResolvedValueOnce({
-      item: "Ayam Segar",
+    const mockCtx = {
+      message: { text: "Ayam 25.50" },
+      from: { id: 12345, first_name: "Husband" },
+      chat: { id: 11111 },
+      reply: vi.fn(),
+    } as any;
+
+    await handleTextExpense(mockCtx, mockCategoryRepository, textSessions);
+
+    expect(textSessions.size).toBe(1);
+    const session = Array.from(textSessions.values())[0];
+    expect(session.item).toBe("Ayam");
+    expect(session.amount).toBe(25.5);
+    expect(session.category).toBe("Meat & Seafood");
+
+    expect(mockCtx.reply).toHaveBeenCalledWith(
+      expect.stringContaining("Expense Log Preview"),
+      expect.objectContaining({
+        parse_mode: "MarkdownV2",
+        reply_markup: expect.anything(),
+      })
+    );
+  });
+
+  it("should confirm text expense and persist to Google Sheets", async () => {
+    const sessionId = "test-session-123";
+    textSessions.set(sessionId, {
+      sessionId,
+      chatId: 11111,
+      userId: "12345",
+      userName: "Husband",
+      item: "Ayam",
       amount: 25.5,
       category: "Meat & Seafood",
+      rawInput: "Ayam 25.50",
+      createdAt: Date.now(),
     });
 
     mockBudgetRepository.getActiveBudget.mockResolvedValueOnce({
@@ -48,12 +108,12 @@ describe("Text Expense Ingestion Handler (expenseHandler.ts)", () => {
       {
         id: "tx-1",
         date: "2026-03-25",
-        item: "Ayam Segar",
+        item: "Ayam",
         category: "Meat & Seafood",
         amount: 25.5,
         purchaserId: "12345",
         purchaserName: "Husband",
-        rawInput: "ayam RM25.50",
+        rawInput: "Ayam 25.50",
         budgetId: "b-123",
       },
     ]);
@@ -67,86 +127,133 @@ describe("Text Expense Ingestion Handler (expenseHandler.ts)", () => {
     });
 
     const mockCtx = {
-      message: { text: "ayam RM25.50" },
-      from: { id: 12345, first_name: "Husband" },
-      reply: vi.fn(),
+      callbackQuery: { data: `confirm_text:${sessionId}` },
+      answerCallbackQuery: vi.fn(),
+      editMessageText: vi.fn(),
     } as any;
 
-    await handleTextExpense(
+    await handleConfirmTextExpenseCallback(
       mockCtx,
-      mockAIService,
-      mockCategoryRepository,
+      textSessions,
       mockBudgetRepository,
       mockTransactionRepository
     );
 
-    expect(mockAIService.parseTextExpense).toHaveBeenCalledWith("ayam RM25.50", ["Meat & Seafood"]);
-    expect(mockTransactionRepository.addTransactions).toHaveBeenCalledWith([
-      {
-        date: expect.any(String),
-        item: "Ayam Segar",
-        category: "Meat & Seafood",
-        amount: 25.5,
-        purchaserId: "12345",
-        purchaserName: "Husband",
-        rawInput: "ayam RM25.50",
-        budgetId: "b-123",
-      },
-    ]);
-    expect(mockCtx.reply).toHaveBeenCalledWith(
+    expect(textSessions.has(sessionId)).toBe(false);
+    expect(mockTransactionRepository.addTransactions).toHaveBeenCalled();
+    expect(mockCtx.editMessageText).toHaveBeenCalledWith(
       expect.stringContaining("Expense Logged"),
       { parse_mode: "MarkdownV2" }
     );
   });
 
-  it("should handle text expense when no active budget exists", async () => {
-    mockCategoryRepository.getCategories.mockResolvedValueOnce([]);
-    mockAIService.parseTextExpense.mockResolvedValueOnce({
-      item: "Ayam Segar",
+  it("should handle text expense confirmation when no active budget exists", async () => {
+    const sessionId = "test-session-no-budget";
+    textSessions.set(sessionId, {
+      sessionId,
+      chatId: 11111,
+      userId: "12345",
+      userName: "Husband",
+      item: "Ayam",
       amount: 25.5,
       category: "Meat & Seafood",
+      rawInput: "Ayam 25.50",
+      createdAt: Date.now(),
     });
+
     mockBudgetRepository.getActiveBudget.mockResolvedValueOnce(null);
     mockTransactionRepository.addTransactions.mockResolvedValueOnce([
       {
         id: "tx-1",
         date: "2026-03-25",
-        item: "Ayam Segar",
+        item: "Ayam",
         category: "Meat & Seafood",
         amount: 25.5,
         purchaserId: "12345",
         purchaserName: "Husband",
-        rawInput: "ayam 25.50",
+        rawInput: "Ayam 25.50",
         budgetId: "UNASSIGNED",
       },
     ]);
-    mockBudgetRepository.getBudgetSummary.mockResolvedValueOnce({
-      activeBudget: null,
-      totalSpent: 0,
-      remainingBalance: 0,
-      transactionCount: 0,
-      isOverBudget: false,
-    });
 
     const mockCtx = {
-      message: { text: "ayam 25.50" },
-      from: { id: 12345, first_name: "Husband" },
-      reply: vi.fn(),
+      callbackQuery: { data: `confirm_text:${sessionId}` },
+      answerCallbackQuery: vi.fn(),
+      editMessageText: vi.fn(),
     } as any;
 
-    await handleTextExpense(
+    await handleConfirmTextExpenseCallback(
       mockCtx,
-      mockAIService,
-      mockCategoryRepository,
+      textSessions,
       mockBudgetRepository,
       mockTransactionRepository
     );
 
-    expect(mockTransactionRepository.addTransactions).toHaveBeenCalledWith([
-      expect.objectContaining({ budgetId: "UNASSIGNED" }),
-    ]);
-    expect(mockCtx.reply).toHaveBeenCalledWith(
+    expect(mockCtx.editMessageText).toHaveBeenCalledWith(
       expect.stringContaining("No active budget window found"),
+      { parse_mode: "MarkdownV2" }
+    );
+  });
+
+  it("should alert user if confirm text session has expired", async () => {
+    const mockCtx = {
+      callbackQuery: { data: "confirm_text:non-existent-session" },
+      answerCallbackQuery: vi.fn(),
+    } as any;
+
+    await handleConfirmTextExpenseCallback(
+      mockCtx,
+      textSessions,
+      mockBudgetRepository,
+      mockTransactionRepository
+    );
+
+    expect(mockCtx.answerCallbackQuery).toHaveBeenCalledWith({
+      text: expect.stringContaining("Session expired"),
+      show_alert: true,
+    });
+  });
+
+  it("should cancel text expense logging when cancel button is clicked", async () => {
+    const sessionId = "test-session-456";
+    textSessions.set(sessionId, {
+      sessionId,
+      chatId: 11111,
+      userId: "12345",
+      userName: "Husband",
+      item: "Carrot",
+      amount: 10,
+      category: "Produce & Veggies",
+      rawInput: "Carrot 10",
+      createdAt: Date.now(),
+    });
+
+    const mockCtx = {
+      callbackQuery: { data: `cancel_text:${sessionId}` },
+      answerCallbackQuery: vi.fn(),
+      editMessageText: vi.fn(),
+    } as any;
+
+    await handleCancelTextExpenseCallback(mockCtx, textSessions);
+
+    expect(textSessions.has(sessionId)).toBe(false);
+    expect(mockCtx.editMessageText).toHaveBeenCalledWith(
+      expect.stringContaining("Expense logging cancelled"),
+      { parse_mode: "MarkdownV2" }
+    );
+  });
+
+  it("should handle cancel callback safely when session is missing", async () => {
+    const mockCtx = {
+      callbackQuery: { data: "cancel_text:missing-session" },
+      answerCallbackQuery: vi.fn(),
+      editMessageText: vi.fn(),
+    } as any;
+
+    await handleCancelTextExpenseCallback(mockCtx, textSessions);
+
+    expect(mockCtx.editMessageText).toHaveBeenCalledWith(
+      expect.stringContaining("Expense logging cancelled"),
       { parse_mode: "MarkdownV2" }
     );
   });

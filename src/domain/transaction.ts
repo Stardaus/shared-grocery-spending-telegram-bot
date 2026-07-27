@@ -38,3 +38,15 @@ export interface ReceiptVerificationSession {
   parsedReceipt: GeminiParsedReceipt;
   createdAt: number;
 }
+
+export interface PendingTextExpenseSession {
+  sessionId: string;
+  chatId: number;
+  userId: string;
+  userName: string;
+  item: string;
+  amount: number;
+  category: string;
+  rawInput: string;
+  createdAt: number;
+}

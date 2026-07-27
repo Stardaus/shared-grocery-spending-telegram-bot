@@ -8,7 +8,12 @@ import { GeminiAIService } from "../ai/gemini.js";
 import { authorizeUser } from "./middleware/auth.js";
 import { handleSetBudget, handleSummary } from "./handlers/budgetHandler.js";
 import { handleCategories, handleAddCategory, handleDeleteCategory } from "./handlers/categoryHandler.js";
-import { handleTextExpense } from "./handlers/expenseHandler.js";
+import {
+  handleTextExpense,
+  handleConfirmTextExpenseCallback,
+  handleCancelTextExpenseCallback,
+  TextExpenseSessionMap,
+} from "./handlers/expenseHandler.js";
 import {
   handleReceiptPhoto,
   handleConfirmReceiptCallback,
@@ -38,6 +43,7 @@ export function createBot(env: Env): Bot {
 
   const aiService = new GeminiAIService(env.GEMINI_API_KEY);
   const receiptSessions: ReceiptSessionMap = new Map();
+  const textSessions: TextExpenseSessionMap = new Map();
 
   // Apply Security Authorization Middleware
   bot.use(authorizeUser(env.ALLOWED_USER_IDS));
@@ -68,13 +74,22 @@ export function createBot(env: Env): Bot {
   bot.command("deletecategory", (ctx) => handleDeleteCategory(ctx, categoryRepo));
   bot.command("breakdown", (ctx) => handleBreakdown(ctx, budgetRepo, transactionRepo));
 
-  // Inline Button Callback Handlers
+  // Inline Button Callback Handlers (Receipt Verification)
   bot.callbackQuery(/^confirm_receipt:/, (ctx) =>
     handleConfirmReceiptCallback(ctx, receiptSessions, budgetRepo, transactionRepo)
   );
 
   bot.callbackQuery(/^cancel_receipt:/, (ctx) =>
     handleCancelReceiptCallback(ctx, receiptSessions)
+  );
+
+  // Inline Button Callback Handlers (Text Expense Verification)
+  bot.callbackQuery(/^confirm_text:/, (ctx) =>
+    handleConfirmTextExpenseCallback(ctx, textSessions, budgetRepo, transactionRepo)
+  );
+
+  bot.callbackQuery(/^cancel_text:/, (ctx) =>
+    handleCancelTextExpenseCallback(ctx, textSessions)
   );
 
   // Photo Message Listener (Receipt Uploads)
@@ -84,7 +99,7 @@ export function createBot(env: Env): Bot {
 
   // Text Message Listener (Quick Expense Logging)
   bot.on("message:text", (ctx) =>
-    handleTextExpense(ctx, aiService, categoryRepo, budgetRepo, transactionRepo)
+    handleTextExpense(ctx, categoryRepo, textSessions)
   );
 
   // Global Error Handler
